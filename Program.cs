@@ -1,14 +1,11 @@
-﻿using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
 using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
-var kvUri = "https://kv-daniellab.vault.azure.net/";
-var kvClient = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
-var secret = await kvClient.GetSecretAsync("ConnectionString-DanielDB");
-string connString = secret.Value.Value;
+string connString = Environment.GetEnvironmentVariable("SQLCONNSTR_DanielDB")
+                 ?? builder.Configuration.GetConnectionString("DanielDB")
+                 ?? throw new Exception("Connection string no encontrada");
 
 async Task<SqlConnection> GetConnectionWithRetry()
 {
