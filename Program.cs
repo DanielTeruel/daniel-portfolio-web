@@ -3,11 +3,7 @@ using Microsoft.Data.SqlClient;
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
-string connString = Environment.GetEnvironmentVariable("SQLCONNSTR_DanielDB")
-                 ?? builder.Configuration.GetConnectionString("DanielDB")
-                 ?? throw new Exception("Connection string no encontrada");
-
-async Task<SqlConnection> GetConnectionWithRetry()
+async Task<SqlConnection> GetConnectionWithRetry(string connString)
 {
     int attempts = 0;
     while (true)
@@ -29,39 +25,51 @@ async Task<SqlConnection> GetConnectionWithRetry()
 
 app.MapGet("/", async () =>
 {
+    // Conexión lazy — solo cuando llega una petición
+    string connString = Environment.GetEnvironmentVariable("SQLCONNSTR_DanielDB")
+                     ?? builder.Configuration.GetConnectionString("DanielDB")
+                     ?? throw new Exception("Connection string no encontrada");
+
     var proyectos = new System.Text.StringBuilder();
     var certs = new System.Text.StringBuilder();
 
-    using (var conn = await GetConnectionWithRetry())
+    try
     {
-        var cmd1 = new SqlCommand("SELECT Titulo, Tags, Descripcion FROM Proyectos", conn);
-        using var reader1 = await cmd1.ExecuteReaderAsync();
-        while (await reader1.ReadAsync())
+        using (var conn = await GetConnectionWithRetry(connString))
         {
-            var tags = reader1["Tags"].ToString()!.Split(',');
-            var tagsHtml = string.Join("", tags.Select(t => $"<span class='proj-tag'>{t.Trim()}</span>"));
-            proyectos.Append($@"
-            <div class='proj-card fade-in'>
-                <p class='proj-title'>{reader1["Titulo"]}</p>
-                <div class='proj-tags'>{tagsHtml}</div>
-                <p class='proj-body'>{reader1["Descripcion"]}</p>
-            </div>");
-        }
-        await reader1.CloseAsync();
+            var cmd1 = new SqlCommand("SELECT Titulo, Tags, Descripcion FROM Proyectos", conn);
+            using var reader1 = await cmd1.ExecuteReaderAsync();
+            while (await reader1.ReadAsync())
+            {
+                var tags = reader1["Tags"].ToString()!.Split(',');
+                var tagsHtml = string.Join("", tags.Select(t => $"<span class='proj-tag'>{t.Trim()}</span>"));
+                proyectos.Append($@"
+                <div class='proj-card fade-in'>
+                    <p class='proj-title'>{reader1["Titulo"]}</p>
+                    <div class='proj-tags'>{tagsHtml}</div>
+                    <p class='proj-body'>{reader1["Descripcion"]}</p>
+                </div>");
+            }
+            await reader1.CloseAsync();
 
-        var cmd2 = new SqlCommand("SELECT Nombre, Entidad, Skills FROM Certificaciones", conn);
-        using var reader2 = await cmd2.ExecuteReaderAsync();
-        while (await reader2.ReadAsync())
-        {
-            certs.Append($@"
-            <div class='edu-card fade-in'>
-                <div>
-                    <p class='edu-title'>{reader2["Nombre"]}</p>
-                    <p class='edu-place'>{reader2["Entidad"]}</p>
-                    <p class='edu-skills'>{reader2["Skills"]}</p>
-                </div>
-            </div>");
+            var cmd2 = new SqlCommand("SELECT Nombre, Entidad, Skills FROM Certificaciones", conn);
+            using var reader2 = await cmd2.ExecuteReaderAsync();
+            while (await reader2.ReadAsync())
+            {
+                certs.Append($@"
+                <div class='edu-card fade-in'>
+                    <div>
+                        <p class='edu-title'>{reader2["Nombre"]}</p>
+                        <p class='edu-place'>{reader2["Entidad"]}</p>
+                        <p class='edu-skills'>{reader2["Skills"]}</p>
+                    </div>
+                </div>");
+            }
         }
+    }
+    catch (Exception ex)
+    {
+        return Results.Content($"<h2>Error de conexión: {ex.Message}</h2>", "text/html");
     }
 
     return Results.Content(HtmlPage(proyectos.ToString(), certs.ToString()), "text/html");
